@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
-import numpy as np
 import math
 import copy
 '''Transformer模型的组块包括携带位置信息的嵌入层、Encoder、Decoder和Generator，以下分别予以构建。'''
@@ -67,7 +66,7 @@ class ResidualConnection(nn.Module): #定义残差连接模块，这里是Pre-LN
     def __init__(self,d_model,p_dropout):
         super(ResidualConnection,self).__init__()
         self.norm=LayerNorm(d_model)
-        self.dropout=nn.Dropout(p_dropout)
+        self.dropout=nn.Dropout(p=p_dropout)
     def forward(self,input_seq,MultiHeadAttention):
         output=input_seq+self.dropout(MultiHeadAttention(self.norm(input_seq)))
         return output
@@ -76,7 +75,35 @@ class FeedForward(nn.Module): #定义FFN模块，用于非线性学习
         super(FeedForward,self).__init__()
         self.l_1=nn.Linear(d_model,d_ff)
         self.l_2=nn.Linear(d_ff,d_model)
-        self.dropout=nn.Dropout(p_dropout)
+        self.dropout=nn.Dropout(p=p_dropout)
     def forward(self,output):
-        output=self.w_2(self.dropout(F.relu(self.w_1(output))))
-        return output #次为子encoder或子decoder的输出
+        output=self.1_2(self.dropout(F.relu(self.1_1(output))))
+        return output #为子encoder或子decoder的输出
+'''拼装组件构建Encoder'''
+class Encoder(nn.Module):
+    def __init__(self,vocab_size,d_model,d_ff,num_head,p_dropout,N,max_len):
+        super(Encoder,self).__init__()
+        self.embedding=EmbeddingwithPositionalEncoding(vocab_size,d_model,max_len,p_dropout)
+        self.encoderlayers=nn.ModuleList([copy.deepcopy(self._make_layer(d_model,d_ff,num_head,p_dropout)) for _ in range(N)])
+        self.attn_matrix=MultiHeadAttention(num_head,d_model,p_dropout)
+        self.feed_forward=FeedForward(d_model,d_ff,p_dropout)
+        sublayer0 = ResidualConnection(d_model, dropout)
+        sublayer1 = ResidualConnection(d_model, dropout)
+        self.norm=LayerNorm(d_model)
+
+    def forward(self, x, mask):
+        x = self.embedding(x)
+        for layer in self.layers:
+            x = layer(x, mask)
+        return self.norm(x)
+
+    def _make_layer(self, d_model, d_ff, num_heads, dropout):
+        self_attn = MultiHeadAttention(num_heads, d_model, dropout)
+        feed_forward = FeedForward(d_model, d_ff, dropout)
+        sublayer0 = ResidualConnection(d_model, dropout)
+        sublayer1 = ResidualConnection(d_model, dropout)
+        
+        def layer(x, mask):
+            x = sublayer0(x, lambda x: self_attn(x, x, x, mask))
+            return sublayer1(x, feed_forward)
+        return layer
