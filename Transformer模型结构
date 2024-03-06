@@ -24,11 +24,17 @@ class EmbeddingwithPositionalEncoding(nn.Module): #携带位置信息的嵌入�
         input_seq=self.embedding(input_seq)+self.pe[:,:input_seq.size(1)]
         input_seq=self.dropout(input_seq)
         return input_seq #input_seq为携带位置信息的嵌入张量，尺寸为(batch_size,len_seq,d_model)
-def attention(query,key,value,mask=None,dropout=None): #定义自注意力矩阵、交叉注意力矩阵中注意力计算部分，由于在两种注意力矩阵的计算过程中应用不同的mask，这里定义mask默认为None
+def attention(query,key,value,mask=None,dropout=None): #定义自注意力矩阵、交叉注意力矩阵中注意力计算部分
     attn_scores=torch.matmul(query,key.transpose(-2,-1))/math.sqrt(query.size(-1)) #未经掩码机制及概率分布化处理的注意力分数，如果query=key=value则输出自注意力分数，如果query与key、value不同则是encoder-decoder交叉注意力分数
-    if mask is not None:
+    if mask is not None: #应用mask机制。在encoder里调用方法为attention(mask=input_seq!=0)，在decoder里调用方法为attention(mask=combinemask)
         attn_scores=attn_scores.mask_fill(mask==0,-1e9)
         p_attn=F.softmax(attn_scores,dim=-1)
         if dropout is not None:
             p_attn=dropout(p_attn)
         return torch.matmul(p_attn,value),p_attn
+def combinemask(tgt_max_len):
+    paddingmask=input_seq!=0
+    futuremask=torch.triu(torch.ones(tgt_max_len,tgt_max_len),diagonal=1,dtype=torch.bool)
+    futuremask=futuremask.unsqueeze(0).expand(paddingmask.size(0),-1,-1)
+    combinemask=paddingmask.unsqueeze(1)&futuremask
+    return combinemask
